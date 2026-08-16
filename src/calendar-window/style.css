@@ -127,7 +127,8 @@ body {
   line-height: 22px;
   text-align: center;
 }
-.cell.today .num {`n  color: #fff; /* 蓝底上的今天数字保持白色 */
+.cell.today .num {
+  color: #fff; /* 蓝底上的今天数字保持白色 */
   font-weight: 500;
 }
 
