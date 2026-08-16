@@ -1,0 +1,17 @@
+# Node
+node_modules/
+dist/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# 系统
+.DS_Store
+Thumbs.db
+*.log
+
+# 临时验证文件
+temp-*.mjs
+temp-*.txt
+*.png

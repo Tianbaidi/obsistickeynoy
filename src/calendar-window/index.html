@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>日历</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="widget-card" id="card">
+      <div class="titlebar" id="titlebar">
+        <button id="prev-btn" title="上个月">‹</button>
+        <span id="month-label">2026年8月</span>
+        <button id="next-btn" title="下个月">›</button>
+        <span class="spacer"></span>
+        <button id="close-btn" title="关闭组件">×</button>
+      </div>
+      <div class="weekdays">
+        <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+      </div>
+      <div id="grid" class="grid"></div>
+      <div id="bigdate" class="bigdate hidden">
+        <div id="big-num" class="big-num">16</div>
+        <div id="big-label" class="big-label"></div>
+      </div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

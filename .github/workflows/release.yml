@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: 安装依赖
+        run: npm install
+
+      - name: 构建并发布
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "ObsiStickeyNoy ${{ github.ref_name }}"
+          releaseBody: |
+            桌面便笺 + 日历/时钟小组件，与 Obsidian 库双向同步。
+
+            ## 安装
+            - 下载 `ObsiStickeyNoy_*_x64-setup.exe` 运行安装
+            - 需要 Windows 10/11 + WebView2 运行时（系统一般自带）
+
+            ## 使用
+            - 首次启动在设置里选择你的 Obsidian 库路径
+            - 便笺数据以 Markdown 存在库的 `Obsi_StickeyNoy/` 目录
+            - 托盘菜单：新建便笺 / 新建 TODO / 设置 / 退出
+          releaseDraft: true
+          prerelease: false

@@ -1,0 +1,70 @@
+/* 时钟组件：方正数字 + 可配置样式；无 box-shadow（排查圆角外边框线） */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Bahnschrift", "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+.clock-card {
+  position: relative;
+  height: 100vh;
+  box-sizing: border-box;
+  /* 不要 CSS 圆角：圆角边缘在透明窗口上像勾线；白色填充整窗，圆角交给 Win11 窗口本身 */
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.clock-card:active {
+  cursor: grabbing;
+}
+
+.time {
+  font-size: clamp(30px, 24vw, 58px);
+  font-weight: 200;
+  letter-spacing: 1px;
+  color: #1f1f1f;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  white-space: nowrap;
+  max-width: 92%;
+  overflow: hidden;
+}
+
+.date {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #5f6368;
+}
+
+#close-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.clock-card:hover #close-btn {
+  opacity: 1;
+}
+#close-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.7);
+}

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>便笺</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="note-card" id="card">
+      <div class="titlebar" id="titlebar">
+        <span class="title" id="note-title">
+          <span id="note-label">便笺</span><span id="note-name" class="note-name" title="点击命名">＋ 标题</span>
+        </span>
+        <span id="todo-progress" class="todo-progress hidden"></span>
+        <div class="actions">
+          <button id="pin-btn" title="置顶">📌</button>
+          <button id="rich-btn" title="预览">👁</button>
+          <button id="new-btn" title="新建便笺">＋</button>
+          <button id="delete-btn" title="删除">🗑</button>
+          <button id="close-btn" title="隐藏">－</button>
+        </div>
+      </div>
+      <div id="rich-editor"></div>
+      <div id="todo-view" class="hidden"></div>
+      <div id="note-preview" class="hidden" data-color-mode=""></div>
+      <div class="resize-handle" id="resize-handle"></div>
+    </div>
+    <div id="ctx-menu" class="ctx-menu hidden">
+      <div class="ctx-item" data-action="pin">📌 <span class="ctx-pin-label">置顶</span></div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" data-action="new-note">＋ 新建便笺</div>
+      <div class="ctx-item" data-action="new-todo">☑ 新建 TODO 便笺</div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-title">颜色</div>
+      <div class="ctx-colors" id="ctx-colors">
+        <span class="swatch" data-color="yellow" style="background:#ffd65c"></span>
+        <span class="swatch" data-color="pink" style="background:#ffb3ba"></span>
+        <span class="swatch" data-color="green" style="background:#aae696"></span>
+        <span class="swatch" data-color="blue" style="background:#96cdff"></span>
+        <span class="swatch" data-color="purple" style="background:#d2b4ff"></span>
+        <span class="swatch" data-color="gray" style="background:#d0d0d0"></span>
+      </div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" data-action="copy">📋 复制内容</div>
+      <div class="ctx-item" data-action="hide">— 隐藏</div>
+      <div class="ctx-item danger" data-action="delete">🗑 删除</div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

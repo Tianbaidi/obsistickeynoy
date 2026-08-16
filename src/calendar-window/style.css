@@ -1,0 +1,179 @@
+/* 日历组件：方正数字 + 大字日期形态切换；无 box-shadow（排查圆角外边框线） */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Bahnschrift", "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.widget-card {
+  --fg: #3c4043; /* 统一字体色（JS 按样式设置覆盖） */
+  height: 100vh;
+  box-sizing: border-box;
+  /* 与时钟一致：不要 CSS 圆角，白色填充整窗，圆角交给 Win11 窗口本身 */
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 8px 8px 6px;
+  cursor: default;
+}
+
+.titlebar {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px 4px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.titlebar:active {
+  cursor: grabbing;
+}
+.titlebar button {
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #5f6368; /* 控制按钮保持固定灰，不随字体色变 */
+}
+.titlebar button:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.spacer {
+  flex: 1;
+}
+#month-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg, #202124);
+  flex: 1;
+  text-align: center;
+}
+
+.weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.weekdays span {
+  text-align: center;
+  font-size: 9px;
+  color: var(--fg, #5f6368);
+  padding: 2px 0;
+}
+
+.grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 1fr;
+  gap: 2px;
+}
+.cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.cell:hover {
+  background: rgba(26, 115, 232, 0.1);
+}
+.cell.empty {
+  cursor: default;
+}
+.cell.empty:hover {
+  background: transparent;
+}
+.cell.today::before {
+  content: "";
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1a73e8; /* Pixel 蓝：今天 */
+  z-index: 0;
+}
+.cell.selected::before {
+  content: "";
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #1a73e8;
+  box-sizing: border-box;
+  z-index: 0;
+}
+.num {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  color: var(--fg, #3c4043);
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+}
+.cell.today .num {`n  color: #fff; /* 蓝底上的今天数字保持白色 */
+  font-weight: 500;
+}
+
+.dots {
+  position: absolute;
+  bottom: 2px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  z-index: 1;
+}
+.dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #5b8def;
+}
+.dot.due {
+  background: #c0564f;
+}
+.count {
+  font-size: 7px;
+  color: var(--fg, #5f6368);
+  line-height: 3px;
+}
+
+/* 大字日期形态 */
+.bigdate {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.big-num {
+  font-size: clamp(48px, 26vh, 96px);
+  font-weight: 300;
+  line-height: 1.1;
+  color: var(--fg, #3c4043);
+  font-variant-numeric: tabular-nums;
+}
+.big-label {
+  font-size: 12px;
+  color: var(--fg, #5f6368);
+  margin-top: 2px;
+}
