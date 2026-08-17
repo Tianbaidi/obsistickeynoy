@@ -5,8 +5,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalSize, Position, Size,
-    WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
 };
 
 mod desktop_grid;
@@ -448,22 +448,28 @@ fn open_settings(app: &AppHandle) -> tauri::Result<()> {
 
 // ---------- 桌面小组件（日历 3×3 图标 / 时钟 3×2 图标，固定大小）----------
 
-/// 组件物理尺寸 = cols×rows 个桌面图标（物理像素，来自图标网格 pitch）
-fn widget_physical_size(app: &AppHandle, kind: &str) -> (f64, f64) {
+/// 组件逻辑尺寸 = cols×rows × 网格逻辑步长（step = pitch_phys/scale）。
+/// ⚠️ 必须用逻辑尺寸（同便笺）：set_size(Physical) 会被 Tauri 按窗口 DPI 再换算，release 下放大 ~1.5 倍。
+fn widget_logical_size(app: &AppHandle, kind: &str) -> (f64, f64) {
     let (cols, rows) = match kind {
         "calendar" => (3.0, 3.0),
         _ => (3.0, 2.0),
     };
     let state = app.state::<AppState>();
-    let gs = state.grid.lock().unwrap();
-    match gs.desktop.as_ref() {
-        Some(d) => (cols * d.pitch_phys_x, rows * d.pitch_phys_y),
-        None => (240.0, 160.0),
-    }
+    let cfg = state.config.lock().unwrap().clone();
+    let st = match kind {
+        "clock" => &cfg.widgets.clock,
+        _ => &cfg.widgets.calendar,
+    };
+    // 用保存位置所在显示器（无则主屏）的网格步长
+    let mx = st.x.unwrap_or(0.0);
+    let my = st.y.unwrap_or(0.0);
+    let mon = monitor_name_at(app, mx, my);
+    let g = grid_geometry(app, &state, &mon);
+    (cols * g.step_x, rows * g.step_y)
 }
 
 /// 预创建小组件窗口（隐藏）。⚠️ 同设置窗口铁律：只在 setup 调用，命令里不 build。
-/// 物理尺寸在 show_widget 里用 set_size(Physical) 强制定位，避免 builder 的 DPI 转换歧义。
 fn ensure_widget_window(app: &AppHandle, kind: &str) -> tauri::Result<()> {
     let label = format!("widget_{}", kind);
     if app.get_webview_window(&label).is_some() {
@@ -473,7 +479,7 @@ fn ensure_widget_window(app: &AppHandle, kind: &str) -> tauri::Result<()> {
         "calendar" => ("src/calendar-window/index.html", "日历"),
         _ => ("src/clock-window/index.html", "时钟"),
     };
-    let (w, h) = widget_physical_size(app, kind);
+    let (lw, lh) = widget_logical_size(app, kind);
     WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
         .title(title)
         .decorations(false)
@@ -482,22 +488,22 @@ fn ensure_widget_window(app: &AppHandle, kind: &str) -> tauri::Result<()> {
         .skip_taskbar(true)
         // 禁用代理（Clash 系统代理会代理掉本地 tauri.localhost → 502 白屏）
         .additional_browser_args("--no-proxy-server")
-        .inner_size(w.max(120.0), h.max(80.0))
+        .inner_size(lw.max(120.0), lh.max(80.0))
         .visible(false)
         .build()?;
-    log_msg(&format!("widget window created: {} ({}x{} phys)", label, w, h));
+    log_msg(&format!("widget window created: {} ({}x{} logical)", label, lw, lh));
     Ok(())
 }
 
-/// 显示小组件：锁定固定物理尺寸 + 恢复保存位置（屏幕外则默认右上角），只 show 不创建
+/// 显示小组件：锁定固定逻辑尺寸 + 恢复保存位置（屏幕外则默认右上角），只 show 不创建
 fn show_widget(app: &AppHandle, kind: &str) {
     let label = format!("widget_{}", kind);
     let Some(win) = app.get_webview_window(&label) else {
         return;
     };
-    let (w, h) = widget_physical_size(app, kind);
-    // 锁定尺寸（min=max）：防止被改大/改小（曾出现日历变 533x522）
-    let sz = Size::Physical(PhysicalSize::new(w.round().max(120.0) as u32, h.round().max(80.0) as u32));
+    let (lw, lh) = widget_logical_size(app, kind);
+    // 锁定尺寸（min=max）：防止被改大/改小
+    let sz = Size::Logical(LogicalSize::new(lw.max(120.0), lh.max(80.0)));
     let _ = win.set_size(sz);
     let _ = win.set_min_size(Some(sz));
     let _ = win.set_max_size(Some(sz));
@@ -530,7 +536,7 @@ fn show_widget(app: &AppHandle, kind: &str) {
         if let Ok(Some(mon)) = app.primary_monitor() {
             let wa = mon.work_area();
             let scale = mon.scale_factor().max(0.1);
-            let x = (wa.position.x as f64 + wa.size.width as f64) / scale - w / scale - 40.0;
+            let x = (wa.position.x as f64 + wa.size.width as f64) / scale - lw - 40.0;
             let y = wa.position.y as f64 / scale + 40.0;
             let _ = win.set_position(Position::Logical(LogicalPosition::new(x, y)));
         }
