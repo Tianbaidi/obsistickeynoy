@@ -636,7 +636,7 @@ fn widget_magnet(app: AppHandle, kind: String, x: f64, y: f64) -> Result<(), Str
     Ok(())
 }
 
-/// 小组件拖拽结束：吸附到网格 + 组件间斥力 + 记住位置（逻辑像素）
+/// 小组件拖拽结束：按落点显示器重算尺寸（跨屏 DPI/网格不同）+ 吸附 + 斥力 + 记住位置
 #[tauri::command]
 fn widget_move(app: AppHandle, kind: String, x: f64, y: f64) -> Result<(), String> {
     let k = if kind == "clock" { "clock" } else { "calendar" };
@@ -648,6 +648,16 @@ fn widget_move(app: AppHandle, kind: String, x: f64, y: f64) -> Result<(), Strin
     let (nx, ny) = widget_repel(&state, &geo, k, nx, ny, size.0, size.1);
     if let Some(win) = app.get_webview_window(&format!("widget_{}", k)) {
         let _ = win.set_position(Position::Logical(LogicalPosition::new(nx, ny)));
+        // 跨屏修复：按落点显示器的网格重算逻辑尺寸并重新锁定
+        // （双显示器 DPI 不同（如 150%/100%）时 Windows 会重算窗口，尺寸必须跟随目标屏网格）
+        let (cols, rows) = if k == "clock" { (3.0, 2.0) } else { (3.0, 3.0) };
+        let sz = Size::Logical(LogicalSize::new(
+            (cols * geo.step_x).max(120.0),
+            (rows * geo.step_y).max(80.0),
+        ));
+        let _ = win.set_size(sz);
+        let _ = win.set_min_size(Some(sz));
+        let _ = win.set_max_size(Some(sz));
     }
     let mut cfg = state.config.lock().unwrap().clone();
     match k {
