@@ -1,7 +1,7 @@
 # ObsiStickeyNoy — 开发交接文档（Handover）
 
 > 用途：开新对话继续开发时，把这份文档 + DESIGN.md 一起喂给新 AI，即可完整接手。
-> 最后更新：2026-08-18（v0.1.0 已发布；v2.2 双链/图片嵌入已实现）
+> 最后更新：2026-08-18（v0.2.0 已发布：人性化双链 + 图片嵌入渲染）
 
 ---
 
@@ -107,7 +107,7 @@ HANDOVER.md           # 本文档
 ## 8. 最近一次会话状态（截至交接）
 
 - 应用以 **release 版**运行中（`src-tauri/target/release/obsistickeynoy.exe`，无 dev server）
-- GitHub v0.1.0 已发布，安装包为修复版（组件尺寸固定主屏网格）
+- **GitHub v0.2.0 已发布**（2026-08-18，推 `v0.2.0` 标签触发 Actions 构建 NSIS）：人性化双链 + 图片嵌入渲染；`release.yml` 发布说明已含 v0.2.0 更新日志
 - config.json：noteAlpha 0.51 / contentAlpha 0.32 / titleAlpha 0.0（用户调的）；widgets 两个都开启
 - 测试便笺在 `Trash/` 有几个历史文件；vault 里现有 3 个便笺（1 个普通、2 个 TODO）
 - **v2.2 双链已实现并 release 构建通过**（2026-08-18）：左下 🔗 链接面板、`[[note-<id>|标题]]` 互链、文件导入 `Obsi_StickeyNoy/assets/`、`![[图片]]` 嵌入渲染（随便笺缩放）、预览点击 wikilink 跳转便笺
