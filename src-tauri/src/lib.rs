@@ -448,24 +448,16 @@ fn open_settings(app: &AppHandle) -> tauri::Result<()> {
 
 // ---------- 桌面小组件（日历 3×3 图标 / 时钟 3×2 图标，固定大小）----------
 
-/// 组件逻辑尺寸 = cols×rows × 网格逻辑步长（step = pitch_phys/scale）。
-/// ⚠️ 必须用逻辑尺寸（同便笺）：set_size(Physical) 会被 Tauri 按窗口 DPI 再换算，release 下放大 ~1.5 倍。
+/// 组件逻辑尺寸 = cols×rows × **主显示器**网格逻辑步长。
+/// 用户要求：固定 = 主显示器 3×3（日历）/ 2×3（时钟）图标大小，不随所在屏变化。
+/// ⚠️ 不能按保存位置所在屏算：跨屏后重启会因 DPI 不同而"变大/变小"。
 fn widget_logical_size(app: &AppHandle, kind: &str) -> (f64, f64) {
     let (cols, rows) = match kind {
         "calendar" => (3.0, 3.0),
         _ => (3.0, 2.0),
     };
     let state = app.state::<AppState>();
-    let cfg = state.config.lock().unwrap().clone();
-    let st = match kind {
-        "clock" => &cfg.widgets.clock,
-        _ => &cfg.widgets.calendar,
-    };
-    // 用保存位置所在显示器（无则主屏）的网格步长
-    let mx = st.x.unwrap_or(0.0);
-    let my = st.y.unwrap_or(0.0);
-    let mon = monitor_name_at(app, mx, my);
-    let g = grid_geometry(app, &state, &mon);
+    let g = grid_geometry(app, &state, "primary");
     (cols * g.step_x, rows * g.step_y)
 }
 
@@ -502,11 +494,9 @@ fn show_widget(app: &AppHandle, kind: &str) {
         return;
     };
     let (lw, lh) = widget_logical_size(app, kind);
-    // 锁定尺寸（min=max）：防止被改大/改小
+    // 设定一次固定尺寸（不设 min/max 锁：跨屏 DPI 变化时锁会和系统较劲导致尺寸跳动）
     let sz = Size::Logical(LogicalSize::new(lw.max(120.0), lh.max(80.0)));
     let _ = win.set_size(sz);
-    let _ = win.set_min_size(Some(sz));
-    let _ = win.set_max_size(Some(sz));
     // 位置：保存的位置必须在某个显示器工作区内，否则回退默认右上角
     let cfg = app.state::<AppState>().config.lock().unwrap().clone();
     let st = match kind {
@@ -636,7 +626,8 @@ fn widget_magnet(app: AppHandle, kind: String, x: f64, y: f64) -> Result<(), Str
     Ok(())
 }
 
-/// 小组件拖拽结束：按落点显示器重算尺寸（跨屏 DPI/网格不同）+ 吸附 + 斥力 + 记住位置
+/// 小组件拖拽结束：吸附到网格 + 组件间斥力 + 记住位置。
+/// 尺寸保持固定（不随跨屏重算 —— 用户要求固定大小，不跨屏变大）。
 #[tauri::command]
 fn widget_move(app: AppHandle, kind: String, x: f64, y: f64) -> Result<(), String> {
     let k = if kind == "clock" { "clock" } else { "calendar" };
@@ -648,16 +639,6 @@ fn widget_move(app: AppHandle, kind: String, x: f64, y: f64) -> Result<(), Strin
     let (nx, ny) = widget_repel(&state, &geo, k, nx, ny, size.0, size.1);
     if let Some(win) = app.get_webview_window(&format!("widget_{}", k)) {
         let _ = win.set_position(Position::Logical(LogicalPosition::new(nx, ny)));
-        // 跨屏修复：按落点显示器的网格重算逻辑尺寸并重新锁定
-        // （双显示器 DPI 不同（如 150%/100%）时 Windows 会重算窗口，尺寸必须跟随目标屏网格）
-        let (cols, rows) = if k == "clock" { (3.0, 2.0) } else { (3.0, 3.0) };
-        let sz = Size::Logical(LogicalSize::new(
-            (cols * geo.step_x).max(120.0),
-            (rows * geo.step_y).max(80.0),
-        ));
-        let _ = win.set_size(sz);
-        let _ = win.set_min_size(Some(sz));
-        let _ = win.set_max_size(Some(sz));
     }
     let mut cfg = state.config.lock().unwrap().clone();
     match k {
