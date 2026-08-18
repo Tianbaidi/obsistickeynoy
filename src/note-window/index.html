@@ -24,6 +24,15 @@
       <div id="rich-editor"></div>
       <div id="todo-view" class="hidden"></div>
       <div id="note-preview" class="hidden" data-color-mode=""></div>
+      <button id="link-btn" class="link-btn" title="插入链接 / 引用">🔗</button>
+      <div id="link-panel" class="link-panel hidden">
+        <div class="lp-head">插入链接 / 引用</div>
+        <div class="lp-title">📄 指向便笺</div>
+        <div id="link-notes" class="lp-notes"></div>
+        <div class="lp-sep"></div>
+        <div class="lp-item lp-file" id="link-file">📁 选择其他文件…</div>
+        <div class="lp-hint">图片用 ![[图片]] 嵌入，按便笺宽度自动缩放</div>
+      </div>
       <div class="resize-handle" id="resize-handle"></div>
     </div>
     <div id="ctx-menu" class="ctx-menu hidden">

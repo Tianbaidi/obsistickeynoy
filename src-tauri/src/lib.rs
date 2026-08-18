@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, WebviewUrl,
@@ -16,6 +16,10 @@ mod vault;
 mod windows;
 
 pub const NOTE_FOLDER: &str = "Obsi_StickeyNoy";
+
+/// 便笺内嵌附件目录（vault 内）：<vault>/Obsi_StickeyNoy/assets/
+/// 从硬盘任意位置导入的文件会复制到这里，Obsidian 里用 ![[name]] / [[name]] 全局解析。
+pub const NOTE_ASSETS_FOLDER: &str = "assets";
 
 // ---------- 数据类型 ----------
 
@@ -141,6 +145,28 @@ pub struct NoteSummary {
     pub title: String,
     pub note_type: String,
     pub content: String,
+}
+
+/// 外部文件导入库内后的结果（前端据此插入 [[name]] 或 ![[name]]）
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedFile {
+    /// 落库后的文件名（含扩展名）；已在库内则原文件名
+    pub file_name: String,
+    /// 是否图片（图片用 ![[name]] 嵌入渲染，其他文件用 [[name]] 引用）
+    pub is_image: bool,
+}
+
+fn is_image_file(name: &str) -> bool {
+    let ext = Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif" | "ico"
+    )
 }
 
 /// 三个板块透明度一次下发（设置界面滑块，实时广播）
@@ -379,6 +405,9 @@ fn init_vault(app: &AppHandle, vault: PathBuf) {
     if vault::ensure_layout(&vault).is_err() {
         return;
     }
+    // 允许 asset 协议读取整个库：便笺预览里 ![[图片]] 用 convertFileSrc 加载本地文件
+    // （配置里 scope 为空，运行时只放开当前库，最小权限）
+    let _ = app.asset_protocol_scope().allow_directory(&vault, true);
     let state = app.state::<AppState>();
     {
         let mut g = state.grid.lock().unwrap();
@@ -1055,6 +1084,95 @@ fn note_set_title(app: AppHandle, id: String, title: String) -> Result<(), Strin
     vault::save_note_file(&vault, &saved).map_err(|e| e.to_string())
 }
 
+/// 双链导入：把硬盘上任意文件复制到库内 assets/（已在库内则不复制），
+/// 返回可被 [[name]] / ![[name]] 引用的文件名。Obsidian 按文件名全库解析。
+#[tauri::command]
+fn vault_import_file(app: AppHandle, source: String) -> Result<ImportedFile, String> {
+    let state = app.state::<AppState>();
+    let cfg = state.config.lock().unwrap().clone();
+    let vault = cfg.vault_path.ok_or("vault not configured")?;
+    let src = PathBuf::from(&source);
+    if !src.is_file() {
+        return Err("所选文件不存在".into());
+    }
+    let raw_name = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("无效文件名")?
+        .to_string();
+    // 清洗会破坏 wikilink 语法的字符（[ ] |）
+    let file_name = raw_name.replace(['[', ']', '|'], "_");
+    let is_image = is_image_file(&file_name);
+    // 已在库内 → 不复制（Obsidian 按文件名解析），避免库内重复文件
+    if src.starts_with(&vault) {
+        log_msg(&format!("import: in-vault {} (skip copy)", file_name));
+        return Ok(ImportedFile { file_name, is_image });
+    }
+    let assets = vault::note_dir(&vault).join(NOTE_ASSETS_FOLDER);
+    std::fs::create_dir_all(&assets).map_err(|e| e.to_string())?;
+    let mut dest = assets.join(&file_name);
+    if dest.exists() {
+        let stem = Path::new(&file_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file");
+        let ext = Path::new(&file_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        let mut i = 1;
+        loop {
+            let candidate = if ext.is_empty() {
+                format!("{}-{}", stem, i)
+            } else {
+                format!("{}-{}.{}", stem, i, ext)
+            };
+            dest = assets.join(&candidate);
+            if !dest.exists() {
+                break;
+            }
+            i += 1;
+        }
+    }
+    std::fs::copy(&src, &dest).map_err(|e| format!("复制文件失败: {}", e))?;
+    let final_name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&file_name)
+        .to_string();
+    log_msg(&format!(
+        "import: {} -> assets/{} (image={})",
+        source, final_name, is_image
+    ));
+    Ok(ImportedFile {
+        file_name: final_name,
+        is_image,
+    })
+}
+
+/// 显示/聚焦便笺窗口（预览里点击 wikilink 跳转用）；
+/// 窗口不存在（被销毁/未创建）时从磁盘重新加载并走统一建窗入口。
+#[tauri::command]
+fn note_show(app: AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if let Some(win) = state.windows.lock().unwrap().get(&id) {
+        let _ = win.show();
+        let _ = win.set_focus();
+        log_msg(&format!("note_show: {} (shown)", id));
+        return Ok(());
+    }
+    let cfg = state.config.lock().unwrap().clone();
+    let vault = cfg.vault_path.ok_or("vault not configured")?;
+    let path = vault::note_dir(&vault).join(format!("note-{}.md", id));
+    if let Some(doc) = vault::load_note(&path) {
+        state.notes.lock().unwrap().insert(id.clone(), doc.clone());
+        create_note_window(&app, &doc);
+        log_msg(&format!("note_show: {} (recreated from disk)", id));
+        return Ok(());
+    }
+    Err("便笺不存在".into())
+}
+
 #[tauri::command]
 fn config_get(app: AppHandle) -> Result<AppConfig, String> {
     Ok(app.state::<AppState>().config.lock().unwrap().clone())
@@ -1168,6 +1286,8 @@ pub fn run() {
             note_magnet,
             note_set_color,
             note_set_title,
+            note_show,
+            vault_import_file,
             config_get,
             config_set_vault,
             config_set_alphas,

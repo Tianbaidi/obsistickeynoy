@@ -2,12 +2,18 @@
 // 全部按需懒加载：首次打开预览时才 import 重型依赖（katex/mermaid），
 // 符合内存优先策略（主包保持轻量）。
 import "katex/dist/katex.min.css"; // ⚠️ 必须：否则 katex MathML 源码注解会原样显示
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 type MarkdownItInstance = InstanceType<typeof import("markdown-it").default>;
 
+export interface RenderOptions {
+  /** Obsidian 库路径：解析 ![[图片]] 嵌入时拼接绝对路径（convertFileSrc 加载） */
+  vaultPath?: string;
+}
+
 // 渲染内容为 HTML（异步：按需加载依赖）
-export async function renderMarkdown(src: string): Promise<string> {
-  const md = await createParser();
+export async function renderMarkdown(src: string, opts?: RenderOptions): Promise<string> {
+  const md = await createParser(opts?.vaultPath);
   let html = md.render(src);
   html = renderCallouts(html);
   html = await renderMath(html);
@@ -15,7 +21,94 @@ export async function renderMarkdown(src: string): Promise<string> {
   return html;
 }
 
-async function createParser(): Promise<MarkdownItInstance> {
+// ---- 图片嵌入 ![[...]]：解析为 <img>，src 用 asset 协议指向库内文件 ----
+// 支持 Obsidian 语法：![[name.png]] / ![[name.png|300]]（指定宽度 px）
+function registerImageEmbed(md: MarkdownItInstance, vaultPath?: string): void {
+  md.inline.ruler.before("image", "embed-image", (state, silent) => {
+    const srcStr = state.src;
+    const pos = state.pos;
+    if (srcStr.charCodeAt(pos) !== 0x21 /* ! */) return false;
+    if (srcStr.charCodeAt(pos + 1) !== 0x5b /* [ */) return false;
+    if (srcStr.charCodeAt(pos + 2) !== 0x5b /* [ */) return false;
+    const end = srcStr.indexOf("]]", pos + 3);
+    if (end === -1) return false;
+    if (silent) return true;
+    const raw = srcStr.slice(pos + 3, end);
+    const [namePart, sizePart] = raw.split("|");
+    const name = namePart.trim();
+    const token = state.push("embed-image", "span", 0);
+    token.attrs = [["class", "embed-image-wrap"]];
+    token.content = name;
+    token.meta = { name, size: sizePart?.trim() ?? "" };
+    state.pos = end + 2;
+    return true;
+  });
+
+  md.renderer.rules["embed-image"] = (tokens: any[], idx: number) => {
+    const t = tokens[idx];
+    const name = t.meta.name;
+    const size = t.meta.size;
+    const abs = resolveAssetPath(name, vaultPath);
+    if (!abs) {
+      return `<span class="embed-image-missing" title="找不到文件：${escapeHtml(name)}">🖼 ${escapeHtml(
+        name
+      )}</span>`;
+    }
+    const src = convertFileSrc(abs);
+    const style = /^\d+$/.test(size) ? ` style="width:${parseInt(size, 10)}px"` : "";
+    // data-fallback：assets 里没有时换 vault 根目录再试（onerror 在 note-window 里处理）
+    return `<img class="embed-image" src="${src}" alt="${escapeHtml(name)}" loading="lazy" title="${escapeHtml(
+      name
+    )}" data-name="${escapeHtml(name)}" data-fallback="${escapeHtml(
+      vaultPath ? convertFileSrc(`${vaultPath}\\${name}`) : ""
+    )}"${style}>`;
+  };
+}
+
+/** 把 ![[name]] 里的名字解析为库内绝对路径（返回 assets 优先路径；vault 根由 onerror 兜底） */
+function resolveAssetPath(name: string, vaultPath?: string): string | null {
+  // 已经写了绝对路径（盘符 / UNC）
+  if (/^[a-zA-Z]:[\\/]|^\\\\/.test(name)) {
+    return name;
+  }
+  if (!vaultPath) return null;
+  return `${vaultPath}\\Obsi_StickeyNoy\\assets\\${name}`;
+}
+
+// ---- wikilink [[...]] → 可点击 span（预览点击跳转便笺 / 提示）----
+function registerWikilink(md: MarkdownItInstance): void {
+  md.inline.ruler.before("link", "wikilink", (state, silent) => {
+    const srcStr = state.src;
+    const pos = state.pos;
+    if (srcStr.charCodeAt(pos) !== 0x5b /* [ */) return false;
+    if (srcStr.charCodeAt(pos + 1) !== 0x5b /* [ */) return false;
+    const end = srcStr.indexOf("]]", pos + 2);
+    if (end === -1) return false;
+    const raw = srcStr.slice(pos + 2, end);
+    if (!raw) return false;
+    if (silent) return true;
+    const [target, alias] = raw.split("|");
+    const token = state.push("wikilink", "span", 0);
+    token.attrs = [["class", "wikilink"]];
+    token.content = target;
+    token.meta = { target, alias };
+    state.pos = end + 2;
+    return true;
+  });
+
+  md.renderer.rules["wikilink"] = (tokens: any[], idx: number) => {
+    const t = tokens[idx];
+    const target = t.meta.target;
+    const alias = t.meta.alias;
+    const base = target.split(/[\\/]/).pop() || target;
+    const display = alias || base.replace(/\.md$/i, "");
+    return `<span class="wikilink" data-target="${escapeHtml(target)}" title="[[${escapeHtml(
+      target
+    )}]]">${escapeHtml(display)}</span>`;
+  };
+}
+
+async function createParser(vaultPath?: string): Promise<MarkdownItInstance> {
   const { default: MarkdownItCtor } = await import("markdown-it");
   const md = new MarkdownItCtor({
     html: false, // 不渲染原始 HTML（安全）
@@ -23,31 +116,8 @@ async function createParser(): Promise<MarkdownItInstance> {
     breaks: false,
   });
 
-  // ---- wikilink [[...]] → 占位 span（暂不导航）----
-  md.inline.ruler.before("link", "wikilink", (state, silent) => {
-    const srcStr = state.src;
-    const pos = state.pos;
-    if (srcStr.charCodeAt(pos) !== 0x5b /* [ */) return false;
-    const end = srcStr.indexOf("]]", pos + 2);
-    if (end === -1) return false;
-    const target = srcStr.slice(pos + 2, end);
-    if (!target || target.includes("|")) {
-      // 有别名的 [[目标|别名]] 暂时整体占位
-    }
-    if (silent) return true;
-    const token = state.push("wikilink", "span", 0);
-    token.attrs = [["class", "wikilink"]];
-    token.content = target.split("|")[0];
-    state.pos = end + 2;
-    return true;
-  });
-
-  // 渲染 wikilink token
-  const renderWikilink = (tokens: any[], idx: number) => {
-    const t = tokens[idx];
-    return `<span class="wikilink" title="内部链接（跳转后续版本）">[[${t.content}]]</span>`;
-  };
-  md.renderer.rules["wikilink"] = renderWikilink;
+  registerImageEmbed(md, vaultPath);
+  registerWikilink(md);
 
   return md;
 }

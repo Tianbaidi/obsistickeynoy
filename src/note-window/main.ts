@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, monitorFromPoint } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
 
 interface NoteMeta {
   id: string;
@@ -37,11 +37,16 @@ const titlebar = document.getElementById("titlebar") as HTMLElement;
 const handle = document.getElementById("resize-handle") as HTMLElement;
 const pinBtn = document.getElementById("pin-btn") as HTMLButtonElement;
 const richBtn = document.getElementById("rich-btn") as HTMLButtonElement;
+const linkBtn = document.getElementById("link-btn") as HTMLButtonElement;
+const linkPanel = document.getElementById("link-panel") as HTMLDivElement;
+const linkNotes = document.getElementById("link-notes") as HTMLDivElement;
 
 let doc: NoteDoc | null = null;
 let saveTimer: number | undefined;
 let mode: "rich" | "todo" | "preview" = "rich";
 let previewRendering = false;
+// 库路径（config_get 拿到）：预览渲染 ![[图片]] 时拼绝对路径
+let vaultPath: string | null = null;
 
 // ---- 错误上报到主进程日志（app.log），便于定位 ----
 function log(msg: string) {
@@ -144,10 +149,11 @@ function applyAlpha(a: { note: number; content?: number | null; title?: number |
 async function initAlpha() {
   log("initAlpha: enter");
   try {
-    const cfg = await invoke<{ noteAlpha?: number; contentAlpha?: number | null; titleAlpha?: number | null }>(
+    const cfg = await invoke<{ vaultPath?: string; noteAlpha?: number; contentAlpha?: number | null; titleAlpha?: number | null }>(
       "config_get"
     );
-    log("initAlpha: config got, note=" + cfg.noteAlpha);
+    vaultPath = cfg.vaultPath ?? null;
+    log("initAlpha: config got, note=" + cfg.noteAlpha + " vault=" + (vaultPath ?? "null"));
     applyAlpha({
       note: cfg.noteAlpha ?? 0.2,
       content: cfg.contentAlpha,
@@ -170,7 +176,7 @@ async function renderPreview() {
   previewRendering = true;
   try {
     const { renderMarkdown } = await import("../lib/markdown-render");
-    preview.innerHTML = await renderMarkdown(doc.content);
+    preview.innerHTML = await renderMarkdown(doc.content, { vaultPath: vaultPath ?? undefined });
     preview.dataset.colorMode = doc.meta.color;
     log("preview rendered, len=" + preview.innerHTML.length);
   } catch (e) {
@@ -415,6 +421,125 @@ document.getElementById("delete-btn")!.addEventListener("click", async () => {
 document.getElementById("close-btn")!.addEventListener("click", () => {
   invoke("note_close", { id }).catch(() => {});
 });
+
+// ---- 双链：左下 🔗 按钮 → 链接面板（人性化双链）----
+function hideLinkPanel() {
+  linkPanel.classList.add("hidden");
+  linkBtn.classList.remove("active");
+}
+
+/** 把链接文本插入便笺：富文本=光标处；预览=文末；TODO=追加为任务行 */
+function insertLink(text: string) {
+  if (!doc) return;
+  if (mode === "rich") {
+    import("../lib/rich-editor")
+      .then(({ insertTextAtCursor }) => insertTextAtCursor(text))
+      .catch((err) => log("insertTextAtCursor failed: " + err));
+  } else if (mode === "todo") {
+    doc.content = doc.content.replace(/\s*$/, "") + "\n- [ ] " + text + "\n";
+    renderTodoView();
+    scheduleSave();
+  } else {
+    doc.content = (doc.content.trim() ? doc.content.replace(/\s*$/, "") + "\n\n" : "") + text + "\n";
+    renderPreview();
+    scheduleSave();
+  }
+  hideLinkPanel();
+}
+
+async function refreshLinkPanel() {
+  linkNotes.innerHTML = "";
+  try {
+    const notes = await invoke<{ id: string; title: string; note_type: string }[]>("notes_all");
+    const others = notes.filter((n) => n.id !== id);
+    if (others.length === 0) {
+      linkNotes.innerHTML = '<div class="lp-note-empty">没有其他便笺，可点击下方"选择其他文件"</div>';
+      return;
+    }
+    for (const n of others) {
+      const item = document.createElement("div");
+      item.className = "lp-note-item";
+      const tag = document.createElement("span");
+      tag.className = "lp-note-type";
+      tag.textContent = n.note_type === "todo" ? "TODO" : "便笺";
+      const nm = document.createElement("span");
+      nm.className = "lp-note-name";
+      nm.textContent = n.title || `note-${n.id}`;
+      nm.title = n.title || `note-${n.id}`;
+      item.append(tag, nm);
+      item.addEventListener("click", () => {
+        const target = `note-${n.id}`;
+        insertLink(n.title ? `[[${target}|${n.title}]]` : `[[${target}]]`);
+      });
+      linkNotes.appendChild(item);
+    }
+  } catch (e) {
+    log("link panel refresh failed: " + e);
+    linkNotes.innerHTML = '<div class="lp-note-empty">加载便笺列表失败</div>';
+  }
+}
+
+linkBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const show = linkPanel.classList.contains("hidden");
+  if (show) refreshLinkPanel();
+  linkPanel.classList.toggle("hidden", !show);
+  linkBtn.classList.toggle("active", show);
+});
+
+document.getElementById("link-file")!.addEventListener("click", async () => {
+  try {
+    // 硬盘上任意文件：选择后复制进库内 Obsi_StickeyNoy/assets/，Obsidian 里可见
+    const picked = await open({ multiple: false, directory: false });
+    if (!picked || Array.isArray(picked)) return; // 用户取消
+    const res = await invoke<{ fileName: string; isImage: boolean }>("vault_import_file", {
+      source: picked,
+    });
+    log("imported: " + res.fileName + " image=" + res.isImage);
+    insertLink(res.isImage ? `![[${res.fileName}]]` : `[[${res.fileName}]]`);
+  } catch (e) {
+    log("import file failed: " + e);
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (
+    !linkPanel.classList.contains("hidden") &&
+    !(e.target as HTMLElement).closest("#link-panel") &&
+    !(e.target as HTMLElement).closest("#link-btn")
+  ) {
+    hideLinkPanel();
+  }
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") hideLinkPanel();
+});
+
+// ---- 预览交互：wikilink 点击跳转便笺；图片点击缩放；加载失败回退库根 ----
+preview.addEventListener("click", (e) => {
+  const wl = (e.target as HTMLElement).closest<HTMLElement>(".wikilink[data-target]");
+  if (wl) {
+    const target = wl.dataset.target || "";
+    const m = target.match(/^note-(n_[0-9a-f]+)$/i);
+    if (m) {
+      invoke("note_show", { id: m[1] }).catch((err) => log("note_show failed: " + err));
+    }
+    return;
+  }
+  const img = (e.target as HTMLElement).closest<HTMLImageElement>("img.embed-image");
+  if (img) img.classList.toggle("zoom");
+});
+// error 事件不冒泡，用捕获阶段在容器上拦截
+preview.addEventListener(
+  "error",
+  (e) => {
+    const img = e.target as HTMLImageElement;
+    if (img.classList?.contains("embed-image") && img.dataset.fallback && img.src !== img.dataset.fallback) {
+      img.src = img.dataset.fallback; // assets 没有 → 试 vault 根目录
+    }
+  },
+  true
+);
 
 // ---- 右键菜单 ----
 const ctxMenu = document.getElementById("ctx-menu") as HTMLDivElement;

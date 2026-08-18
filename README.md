@@ -8,12 +8,14 @@
 - **内存优先**：每便笺一个透明小窗口（共用 WebView2 进程树）；Markdown 渲染依赖（katex/mermaid）按需懒加载
 - **v2 已交付**：托盘常驻、单实例、开机自启、跨 DPI 归一化、多显示器、网格原点精度、Markdown 预览（callout/wikilink/LaTeX/mermaid）
 - **v2.1 已交付**：实时磁吸、右键菜单+换色、半透明纸片视觉、富文本 Milkdown、**便笺命名**、**TODO 便笺（纯交互编辑 + 日期/优先级规划）**、**桌面小组件（日历 3×3 / 时钟 3×2，Pixel 风格、样式可配置）**、分板块透明度、回收站进 Obsidian（`Trash/`）
+- **v2.2 已交付（人性化双链）**：便笺左下角 🔗 按钮 → 弹出链接面板，**一键指向其他便笺**（`[[note-<id>|标题]]`，Obsidian 里能解析且显示友好标题）；**"选择其他文件…"** 可从硬盘任意位置选文件，复制进库内 `Obsi_StickeyNoy/assets/` 后用 `[[]]` 引用；**图片用 `![[]]` 嵌入并渲染**，随便笺宽度自动缩放（点击放大原尺寸）；预览里点击 wikilink 直接跳转到目标便笺窗口
 
 详细设计见 [DESIGN.md](DESIGN.md)。
 
 ## 功能速览
 
 - 便笺窗口：拖拽（实时磁吸 + 松手吸附图标网格）、按格缩放、📌置顶、👁预览/编辑、＋新建、🗑删除（进 `Trash/`，Obsidian 可见）、－隐藏
+- **双链（🔗）**：每张便笺左下角 🔗 → ① 列出所有便笺，点击插入 `[[note-<id>|标题]]` 互链；② "选择其他文件…" 系统文件选择器（硬盘任意位置），选中后复制进库内 `Obsi_StickeyNoy/assets/`，图片插 `![[图片]]` 嵌入渲染、其他文件插 `[[文件名]]` 引用；预览里点击 wikilink 可跳转到目标便笺
 - 便笺类型：**普通便笺**（富文本 ⇄ 预览）｜ **TODO 便笺**（纯交互：点文字改、勾选框打勾、日期 chip 弹规划面板设开始/结束/优先级、＋添加、×删除；无需写 markdown）
 - 标题栏：点击"便笺/TODO"后的标题区可直接命名（存 frontmatter，Obsidian 可见）
 - 桌面小组件：设置里开关 —— **日历**（月历 + 任务日期打点 + 点击切大字日期形态）｜ **时钟**（At a Glance 样式）；各自可配背景色/透明度/字体色/字体/纯数字
@@ -70,9 +72,15 @@ npm run tauri build          # 或 npx @tauri-apps/cli build
 sticky-notes/
 ├─ DESIGN.md                  # 设计文档（含 v2 实施记录）
 ├─ src/                       # 前端（原生 TS + Vite 多页面）
-│  ├─ note-window/            #   便笺窗口 UI（拖拽/缩放/自动保存/预览）
-│  ├─ settings/               #   设置窗口（库路径/网格/自启）
-│  └─ lib/markdown-render.ts  #   Markdown 渲染器（懒加载 katex/mermaid）
+│  ├─ note-window/            #   便笺窗口 UI（拖拽/缩放/双链/预览）
+│  ├─ settings/               #   设置窗口（库路径/网格/透明度/组件样式）
+│  ├─ calendar-window/        #   日历小组件（3×3 图标）
+│  ├─ clock-window/           #   时钟小组件（3×2 图标）
+│  └─ lib/
+│     ├─ markdown-render.ts   #   Markdown 渲染器（懒加载 katex/mermaid/图片嵌入）
+│     ├─ rich-editor.ts       #   Milkdown 富文本（懒加载，wikilink 转义修复）
+│     ├─ todo-view.ts         #   TODO 交互列表 + markdown 助手
+│     └─ todo-planner.ts      #   规划面板（🛫开始/📅结束/优先级）
 ├─ src-tauri/                 # Rust 主进程
 │  ├─ src/
 │  │  ├─ lib.rs               #   入口、Commands、托盘、单实例、显示器管理
@@ -101,8 +109,10 @@ monitor: "\\\\.\\DISPLAY5"  # 所在显示器（设备名，primary = 主显示�
 created: "2025-05-01T10:00:00+08:00"
 updated: "2025-05-01T10:05:00+08:00"
 ---
-便笺正文（Markdown）…支持 callout / wikilink / LaTeX / mermaid / 表格
+便笺正文（Markdown）…支持 callout / wikilink / LaTeX / mermaid / 表格 / `![[图片]]` 嵌入
 ```
+
+> 双链引用：`[[note-<id>]]` 或 `[[note-<id>|标题]]`（互链便笺）；`[[文件名]]`（引用库内文件）；`![[图片.png]]`（嵌入图片，随便笺宽度缩放）。图片等外部文件用 🔗 → "选择其他文件…" 导入后存放在 `Obsi_StickeyNoy/assets/`。
 
 ## v0.1 + v2 状态
 
@@ -112,4 +122,5 @@ updated: "2025-05-01T10:05:00+08:00"
 - ✅ 单实例、开机自启
 - ✅ 多显示器独立网格 + 跨 DPI 归一化 + 布局变化自动重排
 - ✅ Markdown 预览（callout/wikilink/LaTeX/mermaid，懒加载）
-- ⬜ 后续：实时磁吸、颜色选择器、右键菜单增强、checklist、搜索、提醒、富文本（Milkdown/TipTap）
+- ✅ 人性化双链（v2.2）：🔗 链接面板、便笺互链 `[[note-<id>|标题]]`、任意文件导入引用、`![[图片]]` 嵌入渲染（随便笺缩放）、预览点击 wikilink 跳转
+- ⬜ 后续：tag 主题支持与筛选、折叠窄条、到期提醒（系统通知）、Dataview 统计模板（Obsidian 侧）、反链面板、富文本编辑器内 wikilink 所见即所得渲染

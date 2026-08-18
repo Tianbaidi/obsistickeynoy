@@ -11,6 +11,17 @@ import { nord } from "@milkdown/theme-nord";
 
 let editor: Editor | null = null;
 
+/**
+ * remark-stringify 会把 [[...]] 转义成 \[\[...]]（内部 _ * 等强调字符也会被转义成 \_ \*），
+ * 存盘后 Obsidian 不认、无法当作 wikilink。这里只把 wikilink 区域的反斜杠转义还原，
+ * 保证落盘是干净的 [[目标|别名]] / ![[图片]]。只作用于 \[\[...]] 区间，不影响其他文本。
+ */
+function fixWikilinkEscapes(md: string): string {
+  return md.replace(/\\\[\\\[(.*?)\]\]/g, (_m, inner: string) => {
+    return `[[${inner.replace(/\\([^a-zA-Z0-9])/g, "$1")}]]`;
+  });
+}
+
 /** 创建富文本编辑器（已存在则复用）；onMarkdown 在内容变化时回调 markdown 文本 */
 export async function createRichEditor(
   el: HTMLElement,
@@ -23,7 +34,8 @@ export async function createRichEditor(
       ctx.set(rootCtx, el);
       ctx.set(defaultValueCtx, content);
       ctx.get(listenerCtx).markdownUpdated((_ctx, md, prev) => {
-        if (md !== prev) onMarkdown(md);
+        const fixed = fixWikilinkEscapes(md);
+        if (fixed !== prev) onMarkdown(fixed);
       });
     })
     .config(nord)
@@ -96,5 +108,14 @@ export function setRichContent(md: string): void {
     } catch {
       /* 解析失败保持现状 */
     }
+  });
+}
+
+/** 在当前光标处插入文本（双链 [[...]] / 图片 ![[...]] 用）；无选区时插在光标处 */
+export function insertTextAtCursor(text: string): void {
+  if (!editor) return;
+  editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    view.dispatch(view.state.tr.insertText(text));
   });
 }

@@ -118,6 +118,8 @@
 | R→M | `note_move` | `{ id, x, y }` | 拖拽中逐帧 `set_position`（不落盘） |
 | R→M | `note_get` | `{ id }` | 窗口加载后拉取 frontmatter + 正文 |
 | R→M | `note_new` | `{ color? }` | 新建便笺：分配格点 + 写文件 + 建窗口 |
+| R→M | `note_show` | `{ id }` | 显示/聚焦便笺窗口（预览里点击 wikilink 跳转用；无窗口则从磁盘重建） |
+| R→M | `vault_import_file` | `{ source }` | 双链导入：把硬盘任意文件复制进库内 `Obsi_StickeyNoy/assets/`（已在库内不复制），返回 `{ fileName, isImage }` |
 | M→R | `note_external_change` | `{ content, updated }` | Obsidian 侧改文件后推送（event） |
 | R→M | `grid_get_config` / `grid_get_geometry` | — | 渲染层画辅助线、计算手柄步进 |
 | R→M | `grid_resync` | — | 手动重新读取桌面图标网格（托盘/设置触发） |
@@ -133,6 +135,8 @@
 ├─ Obsi_StickeyNoy/             # 便笺目录（已确认命名）
 │  ├─ note-<id>.md              # 每个便笺一个文件
 │  ├─ note-<id>.md
+│  ├─ assets/                   # 双链导入的附件（v2.2：图片/文件复制到这里，Obsidian 按文件名解析）
+│  │  └─ <文件名>               #   已在库内的文件不复制，直接引用原文件名
 │  └─ grid.json                 # 网格配置（应用私有，Obsidian 忽略或可见均可）
 └─ .obsidian/                   # （用户的 Obsidian 配置，本应用不碰）
 ```
@@ -454,6 +458,18 @@ h_px = h * cellHeight + (h - 1) * gap
 - [x] **踩坑（devUrl 依赖 → 全部窗口"无法访问此页面"）**：debug 构建的 `WebviewUrl::App` 一律加载 `devUrl`（http://localhost:1420 vite 服务器），dev 服务器一停 → **所有窗口**（便笺/组件/设置）白屏"无法访问"。修复：**release 版 + tauri 的 `custom-protocol` feature**（Cargo.toml 显式开启）→ 内嵌资源、不依赖任何服务器；已实测无 dev 服务器时 release 正常
 - [x] **踩坑（截图误判）**：PrintWindow 抓透明窗口得到 DPI 虚拟化（÷1.5）且视觉模型会误读文本（"23:45"看成本截断）→ 判断界面问题必须用**真实屏幕截图**（CopyFromScreen + DPI-aware 坐标）复核
 - [x] **踩坑**：日历 `.hidden` 类未定义导致"大字日期"块一直显示在网格下方 → 补 `.hidden{display:none!important}`；组件窗口测量必须 DPI-aware（GetWindowRect 虚拟化值 ÷1.5 误导）
+
+### ✅ v2.2 人性化双链（便笺互链 + 任意文件引用 + 图片嵌入渲染）
+
+- [x] **左下 🔗 按钮 + 链接面板**：每张便笺左下角新增 🔗 按钮，点击弹出面板：① 列出当前全部便笺（带类型标签 TODO/便笺，标题或 `note-<id>`），点击插入 `[[note-<id>|标题]]`（Obsidian 里能正确解析且显示友好标题）；② "选择其他文件…" 走系统文件选择器，可访问**硬盘任意位置**的文件，选中后经 `vault_import_file` 命令**复制进库内 `Obsi_StickeyNoy/assets/`**（已在库内则不复制、不产生重复），重名自动加 `-1/-2` 后缀
+- [x] **插入策略按便笺模式**：富文本 = 光标处插入（Milkdown `insertTextAtCursor`，listener 自动触发保存）；预览 = 文末追加；TODO 便笺 = 追加为 `- [ ] [[...]]` 任务行
+- [x] **图片嵌入 `![[...]]` 渲染**（markdown-render 新增 inline 规则）：预览里渲染为 `<img>`，src 用 **asset 协议**（`convertFileSrc`）指向库内文件；**`max-width:100%` 随便笺宽度自动缩放**（便笺放大/缩小图片跟着变），点击图片切换原始尺寸（`.zoom`，超出横向滚动）；支持 Obsidian 语法 `![[img|300]]` 指定宽度；assets 缺失自动回退库根目录（img onerror）
+- [x] **wikilink 别名显示 + 跳转**：`[[目标|别名]]` 预览里显示别名；点击 `[[note-<id>]]` 调 `note_show` **显示/聚焦目标便笺窗口**（窗口隐藏则 show，被销毁则从磁盘重建，重建走统一建窗入口——铁律）
+- [x] **安全与配置**：`protocol-asset` feature + `assetProtocol.enable`（scope 留空，**运行时只放开当前库目录**，最小权限）；capabilities 补 `dialog:allow-open`；导入文件名清洗 `[ ] |` 字符（避免破坏 wikilink 语法）
+- [x] **踩坑（编辑器内不渲染）**：富文本编辑器里 `[[...]]`/`![[...]]` 以**源码文本**显示（与数学公式同策略：编辑器源码、👁 预览渲染）——Milkdown commonmark 不支持 wikilink 节点，所见即所得渲染留作后续
+- [x] **踩坑（asset 协议）**：Tauri v2 的 asset 协议默认**不启用**（`protocol-asset` 不在 default features），且 scope 需显式配置；运行时 `app.asset_protocol_scope().allow_directory(vault, true)` 放开库目录
+- [x] **踩坑（Milkdown 转义 wikilink）**：remark-stringify 序列化时把 `[[a_b]]` 转义成 `\[\[a\_b]]`（开头的 `[` 及内部 `_`/`*` 强调字符），存盘后 **Obsidian 不识别为双链**（用户实测反馈）。修复：`rich-editor.ts` 的 `markdownUpdated` 回调对 `\[\[(.*?)]]` 区间做定向反转义（`\\([^a-zA-Z0-9])` → `$1`），已用 remark v11 实测全部场景（别名/图片/多链接/多行/特殊字符）round-trip 干净；历史已损坏文件在库内手工修复
+- [x] **踩坑（sync 不干扰）**：`assets/` 是 `Obsi_StickeyNoy` 的子目录，notify 监听非递归 + 只处理 `.md`，导入图片不会触发便笺窗口重建
 
 ### ✅ v2.1.2 便笺类型系统（note / todo）
 

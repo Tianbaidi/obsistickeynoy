@@ -1,7 +1,7 @@
 # ObsiStickeyNoy — 开发交接文档（Handover）
 
 > 用途：开新对话继续开发时，把这份文档 + DESIGN.md 一起喂给新 AI，即可完整接手。
-> 最后更新：2026-08-17（v0.1.0 已发布）
+> 最后更新：2026-08-18（v0.1.0 已发布；v2.2 双链/图片嵌入已实现）
 
 ---
 
@@ -74,6 +74,9 @@ HANDOVER.md           # 本文档
 
 - **便笺**：拖拽（实时磁吸 8px + 松手吸附网格）、按格缩放、置顶、换色（右键菜单）、命名（标题栏点击，存 frontmatter `title`）、富文本 Milkdown ⇄ 预览（单按钮轮替，✏️/👁 合并）
 - **TODO 便笺**（`type: todo`）：纯交互（无 markdown 编辑、隐藏 ✏️/👁）——点文字行内编辑、复选框打勾、日期 chip（白底）弹规划面板（🛫 计划开始 / 📅 计划结束 / 🔺⏫🔼🔽 优先级）、＋添加（自动进入编辑）、悬停 × 删除；任务文字自动换行
+- **双链连接（v2.2，人性化）**：每张便笺**左下角 🔗 按钮** → 弹出链接面板——① 列出当前所有便笺（标题或 `note-<id>`），点击插入 `[[note-<id>|标题]]`；② "选择其他文件…" 弹系统文件选择器（可访问硬盘任意文件），选中后**复制进库内 `Obsi_StickeyNoy/assets/`**（已在库内则不复制），图片插入 `![[文件名]]`、其他文件插入 `[[文件名]]`；Obsidian 里按文件名全库解析可见
+- **图片嵌入渲染（v2.2）**：预览（👁）里 `![[图片]]` 渲染为 `<img>`，**随便笺宽度自动缩放**（`max-width:100%`，便笺拉大/缩小图片跟着变），点击图片放大到原始尺寸（再点还原）；支持 `![[img|300]]` 指定宽度；assets 里找不到自动回退库根目录
+- **wikilink 跳转（v2.2）**：预览里点击 `[[note-<id>|标题]]` 会**显示/聚焦目标便笺窗口**（`note_show` 命令）；富文本编辑器里 `[[...]]`/`![[...]]` 以源码文本显示（与公式同策略：编辑器源码、预览渲染）
 - **桌面组件**：日历（3×3 图标，月历 + 任务日期打点 + 点击切"大字日期"形态）、时钟（3×2 图标，Pixel At a Glance）；设置里可配：背景色/背景透明度/字体色/数字字体（方正 Bahnschrift/圆润/等宽）/仅数字无背景；组件间斥力
 - **透明度**：三个独立滑块（便笺底色 / 内容区 / 标题栏），`config_set_alphas` 实时广播
 - **回收站**：删除移入 `Trash/`（**不带点前缀**，Obsidian 可见，可看 tag/双链/连线）；启动自动迁移旧 `.trash`
@@ -92,10 +95,12 @@ HANDOVER.md           # 本文档
 8. **PowerShell 写文件带 BOM**：`Set-Content -Encoding UTF8` 可能写 BOM（tauri.conf.json 曾因此解析失败）——用 write 工具或 `utf8NoBOM`；PowerShell 的 `-replace` 里 `` `n `` 是字面量不是换行（CSS 曾写入字面反引号）。
 9. **每个窗口页面的 `.hidden` 类要各自定义**（不同页面 CSS 不共享）。
 10. **`.gitignore` 不要写裸 `*.png`**（会排除 `src-tauri/icons/tray.png`，CI 编译失败——`include_bytes!` 找不到文件）。
+11. **Milkdown 序列化会转义 wikilink**：remark-stringify 把 `[[a_b]]` 写成 `\[\[a\_b]]`（`[` 和内部 `_`/`*` 都被转义），存盘后 **Obsidian 不认**、无法当双链。修复：`rich-editor.ts` 的 `markdownUpdated` 回调里对 `\[\[(.*?)]]` 区间做**定向反转义**（`\\([^a-zA-Z0-9])` → `$1`），只还原 wikilink 区域、不影响其他文本；已用 remark 实测全场景 round-trip 通过。**新功能只要涉及"编辑器内插入特殊符号文本"，都要检查落盘后的字节**（Obsidian 侧打开看）。
 
 ## 7. 已知遗留 / 下一步候选
 
-- 用户提出的方向（未做）：tag 主题支持与筛选、双链跳转 `[[wikilink]]`、折叠窄条、到期提醒（系统通知）、Dataview 统计模板（Obsidian 侧）、本地 HTTP API + Obsidian 插件适配
+- 用户提出的方向（未做）：tag 主题支持与筛选、折叠窄条、到期提醒（系统通知）、Dataview 统计模板（Obsidian 侧）、本地 HTTP API + Obsidian 插件适配
+- 双链：✅ 已实现插入引用 `[[...]]`、图片嵌入 `![[...]]` 渲染（随便笺缩放）、预览点击跳转便笺；未做：富文本编辑器内 wikilink 的所见即所得渲染（现为源码文本，与公式同策略）、反链面板（谁链接了我）
 - 组件 100% 屏上物理尺寸较小（混合 DPI 固有，用户已接受"主屏固定大小"）
 - 正式版打包：`npx tauri build`（首次需 Clash 开着的网络下载 NSIS）
 
@@ -105,3 +110,5 @@ HANDOVER.md           # 本文档
 - GitHub v0.1.0 已发布，安装包为修复版（组件尺寸固定主屏网格）
 - config.json：noteAlpha 0.51 / contentAlpha 0.32 / titleAlpha 0.0（用户调的）；widgets 两个都开启
 - 测试便笺在 `Trash/` 有几个历史文件；vault 里现有 3 个便笺（1 个普通、2 个 TODO）
+- **v2.2 双链已实现并 release 构建通过**（2026-08-18）：左下 🔗 链接面板、`[[note-<id>|标题]]` 互链、文件导入 `Obsi_StickeyNoy/assets/`、`![[图片]]` 嵌入渲染（随便笺缩放）、预览点击 wikilink 跳转便笺
+- 新增命令：`vault_import_file` / `note_show`；Cargo.toml 加 `protocol-asset` feature；tauri.conf.json 开启 `assetProtocol`（scope 空，运行时放开当前库）；capabilities 补 `dialog:allow-open`

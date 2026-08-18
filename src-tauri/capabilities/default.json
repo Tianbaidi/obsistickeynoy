@@ -11,6 +11,7 @@
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
     "dialog:allow-confirm",
-    "dialog:allow-message"
+    "dialog:allow-message",
+    "dialog:allow-open"
   ]
 }
